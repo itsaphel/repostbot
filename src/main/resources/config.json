@@ -1,0 +1,21 @@
+{
+  "source": "freefolk",
+  "targets": [
+    "gameofthrones"
+  ],
+  "credentials": {
+    "username": "username",
+    "password": "password",
+    "client_id": "client_id",
+    "client_secret": "client_secret"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "repostshamer",
+    "username": "repostshamer",
+    "password": "password"
+  },
+  "response": "This submission is a repost without giving credit to the actual author. The original author was **/u/{author}** and their original submission is located at {url}.",
+  "version": "v0.1.3"
+}
