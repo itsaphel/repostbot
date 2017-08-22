@@ -3,7 +3,7 @@ package io.indices.repostshamer;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
-import net.dean.jraw.ApiException;
+
 import net.dean.jraw.RedditClient;
 import net.dean.jraw.http.UserAgent;
 import net.dean.jraw.http.oauth.Credentials;
@@ -15,8 +15,6 @@ import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.SubredditPaginator;
 
-import javax.imageio.ImageIO;
-import javax.xml.bind.DatatypeConverter;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
@@ -27,20 +25,29 @@ import java.nio.file.Paths;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+import javax.imageio.ImageIO;
+import javax.xml.bind.DatatypeConverter;
 
 public class RepostShamer {
     private static final Logger logger = Logger.getLogger(RepostShamer.class.getName());
     private Config config;
     private Gson gson;
-    private static final UserAgent userAgent = UserAgent.of("desktop", "io.indices.repostshamer", "v0.1.3", "WatcherOnTheRepost");
+    private static final UserAgent userAgent = UserAgent.of("script", "io.indices.repostshamer", "v0.1.3", "WatcherOnTheRepost");
     private static final RedditClient redditClient = new RedditClient(userAgent);
+    private static Credentials credentials;
+    private static OAuthData oAuthData;
     private Connection connection;
     private List<String> shamedIds = new ArrayList<>();
 
@@ -65,10 +72,10 @@ public class RepostShamer {
         }
         createTables();
 
-        OAuthData authData;
+        credentials = Credentials.script(config.credentials.username, config.credentials.password, config.credentials.client_id, config.credentials.client_secret);
         try {
-            authData = redditClient.getOAuthHelper().easyAuth(Credentials.script(config.credentials.username, config.credentials.password, config.credentials.client_id, config.credentials.client_secret));
-            redditClient.authenticate(authData);
+            oAuthData = redditClient.getOAuthHelper().easyAuth(credentials);
+            redditClient.authenticate(oAuthData);
         } catch (OAuthException e) {
             logger.severe("Credentials exception! Terminating application.");
             e.printStackTrace();
@@ -76,13 +83,14 @@ public class RepostShamer {
         }
 
         Executors.newScheduledThreadPool(1).schedule(() -> {
+            System.out.println("Refreshing token...");
             try {
-                OAuthData creds = redditClient.getOAuthHelper().refreshToken(Credentials.script(config.credentials.username, config.credentials.password, config.credentials.client_id, config.credentials.client_secret));
-                redditClient.authenticate(creds);
+                oAuthData = redditClient.getOAuthHelper().refreshToken(credentials);
+                redditClient.authenticate(oAuthData);
             } catch (OAuthException e) {
                 e.printStackTrace();
             }
-        }, 45, TimeUnit.MINUTES);
+        }, 30, TimeUnit.MINUTES);
 
         //Runtime.getRuntime().addShutdownHook(new Thread(() -> redditClient.getOAuthHelper().revokeAccessToken()));
 
@@ -120,7 +128,11 @@ public class RepostShamer {
         // fetch things from source
         new Thread(() -> {
             while (true) {
-                processSubmissions(config.source, 100);
+                try {
+                    processSubmissions(config.source, 100);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
 
                 try {
                     Thread.sleep(45 * 1000L);
@@ -137,27 +149,31 @@ public class RepostShamer {
             }
 
             while (true) {
-                String[] extraTargets = Arrays.copyOfRange(config.targets, 1, config.targets.length);
-                SubredditPaginator targetPaginator = new SubredditPaginator(redditClient, config.targets[0], extraTargets);
-                targetPaginator.setSorting(Sorting.NEW);
-                targetPaginator.setLimit(100);
+                try {
+                    String[] extraTargets = Arrays.copyOfRange(config.targets, 1, config.targets.length);
+                    SubredditPaginator targetPaginator = new SubredditPaginator(redditClient, config.targets[0], extraTargets);
+                    targetPaginator.setSorting(Sorting.NEW);
+                    targetPaginator.setLimit(100);
 
-                Listing<Submission> submissions = targetPaginator.next();
-                submissions.forEach(submission -> {
-                    if (!submission.isSelfPost()) {
-                        String title = submission.getTitle().toLowerCase();
+                    Listing<Submission> submissions = targetPaginator.next();
+                    submissions.forEach(submission -> {
+                        if (!submission.isSelfPost()) {
+                            String title = submission.getTitle().toLowerCase();
 
-                        if (shamedIds.contains(submission.getId()) ||
-                                title.contains("x-post") || title.contains("xpost") || title.contains("crosspost")) {
-                            return;
+                            if (shamedIds.contains(submission.getId()) ||
+                                    title.contains("x-post") || title.contains("xpost") || title.contains("crosspost")) {
+                                return;
+                            }
+
+                            String hash = getHashFromUrl(submission.getUrl());
+                            if (hash != null) {
+                                shame(submission, hash);
+                            }
                         }
-
-                        String hash = getHashFromUrl(submission.getUrl());
-                        if (hash != null) {
-                            shame(submission, hash);
-                        }
-                    }
-                });
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
 
                 try {
                     Thread.sleep(60 * 1000L);
@@ -232,7 +248,7 @@ public class RepostShamer {
                     shamedIds.remove(0);
                 }
             }
-        } catch (SQLException | ApiException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
