@@ -82,7 +82,7 @@ public class RepostShamer {
             System.exit(0);
         }
 
-        Executors.newScheduledThreadPool(1).schedule(() -> {
+        Executors.newScheduledThreadPool(1).scheduleAtFixedRate(() -> {
             System.out.println("Refreshing token...");
             try {
                 oAuthData = redditClient.getOAuthHelper().refreshToken(credentials);
@@ -90,7 +90,7 @@ public class RepostShamer {
             } catch (OAuthException e) {
                 e.printStackTrace();
             }
-        }, 30, TimeUnit.MINUTES);
+        }, 30, 30, TimeUnit.MINUTES);
 
         //Runtime.getRuntime().addShutdownHook(new Thread(() -> redditClient.getOAuthHelper().revokeAccessToken()));
 
